@@ -7,7 +7,7 @@ You can:
 - Rename, reschedule or delete tasks as you wish
 - Auto-reschedule incomplete tasks to later
 
-You can download the latest builds over in the packages section, or you can download the code and make changes if you are a nerd like me.
+You can download the latest builds over in the Releases section, or you can download the code and make changes if you are a nerd like me.
 This project is mostly just to help me with organising my own A-Level work and also because programming random stuff is fun! I don't plan on making it look pretty, it is designed to be functional. Also yes, AI helped me out a bit; Python ain't my first language, sorry not sorry.
 
 ### Building
