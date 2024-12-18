@@ -690,17 +690,17 @@ class RevisionManagerApp:
         # Maximum number of tasks in a period before reschedule algorithm moves on
         max_tasks_lesson = tk.IntVar(value=settings["max_tasks_lesson"])
         tk.Label(settings_frame, text="Max tasks per lesson: ").grid(row=1, column=0, sticky="e")
-        tk.Entry(settings_frame, textvariable=max_tasks_lesson).grid(row=1, column=1, sticky="w")
+        tk.Spinbox(settings_frame, from_=0, to_=100, textvariable=max_tasks_lesson, validate="key", validatecommand=(settings_frame.register(lambda val: val.isdigit() or val == ""), "%P")).grid(row=1, column=1, sticky="w")
 
         # Maximum number of tasks after school before reschedule algorithm moves on
         max_tasks_afternoon = tk.IntVar(value=settings["max_tasks_afternoon"])
         tk.Label(settings_frame, text="Max tasks after school: ").grid(row=2, column=0, sticky="e")
-        tk.Entry(settings_frame, textvariable=max_tasks_afternoon).grid(row=2, column=1, sticky="w")
+        tk.Spinbox(settings_frame, from_=0, to_=100, textvariable=max_tasks_afternoon, validate="key", validatecommand=(settings_frame.register(lambda val: val.isdigit() or val == ""), "%P")).grid(row=2, column=1, sticky="w")
 
         # Week rotation length
         week_rotation_length = tk.IntVar(value=settings["week_rotation_length"])
         tk.Label(settings_frame, text="Week rotation length: ").grid(row=3, column=0, sticky="e")
-        tk.Entry(settings_frame, textvariable=week_rotation_length).grid(row=3, column=1, sticky="w")
+        tk.Spinbox(settings_frame, from_=1, to_=100, textvariable=week_rotation_length, validate="key", validatecommand=(settings_frame.register(lambda val: val.isdigit() or val == ""), "%P")).grid(row=3, column=1, sticky="w")
 
         # Toggle for using lettered weeks
         use_lettered_weeks = tk.BooleanVar(value=settings["use_lettered_weeks"])
@@ -716,6 +716,9 @@ class RevisionManagerApp:
         tk.Button(settings_window, text="Save", command=lambda: save_settings()).pack()
 
         def save_settings():
+            if max_tasks_lesson.get() < 1 and max_tasks_afternoon.get() < 1:
+                auto_reschedule.set(False)
+            
             settings["auto_reschedule"] = auto_reschedule.get()
             settings["max_tasks_lesson"] = max_tasks_lesson.get()
             settings["max_tasks_afternoon"] = max_tasks_afternoon.get()
