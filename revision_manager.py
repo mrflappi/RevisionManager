@@ -13,7 +13,10 @@ SETTINGS_FILE = "settings.json"
 DEFAULT_SETTINGS = {
     "auto_reschedule": True,
     "max_tasks_lesson": 1,
-    "max_tasks_afternoon": 3
+    "max_tasks_afternoon": 3,
+    "week_rotation_length": 2,
+    "use_lettered_weeks": False,
+    "start_week_date": "2024-11-18"
 }
 
 def get_assets_path():
@@ -40,7 +43,6 @@ def load_data(datafile):
         data = json.load(file)
 
     return data
-
 
 # Save Data Management Class
 class SaveManager:
@@ -120,6 +122,30 @@ class SaveManager:
         conn.commit()
         conn.close()
 
+        SaveManager.update_db()
+
+    # class called update_db which checks if the database uses the old letter-based week system and updates it to the new number-based system
+    def update_db():
+        conn = sqlite3.connect(DATABASE_FILE)
+        c = conn.cursor()
+
+        # Check if the Subjects table has the week column
+        c.execute("PRAGMA table_info(Subjects)")
+        columns = c.fetchall()
+        column_names = [col[1] for col in columns]
+
+        if "week" in column_names:
+            # Check if the week column is in the old letter-based system
+            c.execute("SELECT DISTINCT week FROM Subjects")
+            weeks = c.fetchall()
+            if weeks and weeks[0][0] in ["A", "B"]:
+                # Update the week column to the new number-based system
+                c.execute("UPDATE Subjects SET week = 1 WHERE week = 'A'")
+                c.execute("UPDATE Subjects SET week = 2 WHERE week = 'B'")
+                conn.commit()
+
+        conn.close()
+
 # Main App Class
 class RevisionManagerApp:
 
@@ -129,11 +155,18 @@ class RevisionManagerApp:
         self.root = root
         self.root.title("Revision Manager")
 
-        # Define the start date for Week A and initialize variables
-        self.start_date = datetime.strptime("2024-11-18", "%Y-%m-%d")
+        # Load settings
+        settings = SaveManager.load_settings()
+
+        # Define the start date for Week 1 and initialize variables
+        self.start_date = datetime.strptime(settings.get("start_week_date", "2024-11-18"), "%Y-%m-%d")
         self.today_date = datetime.today()
         self.current_date = self.start_date + timedelta(weeks=(self.today_date - self.start_date).days // 7)
-        self.current_week_type = 'A' if ((self.today_date - self.start_date).days // 7) % 2 == 0 else 'B'
+
+        # Load custom week rotation length and week display type from settings
+        self.week_rotation_length = settings.get("week_rotation_length", 2)
+        self.use_lettered_weeks = settings.get("use_lettered_weeks", False)
+        self.current_week_number = self.get_week_number_for_date(self.today_date)
 
         # Store subjects and tasks (tasks are now date-specific)
         self.subjects = {}
@@ -178,8 +211,12 @@ class RevisionManagerApp:
         # Load data from the database for the current week
         self.load_data_from_db()
 
+        week_label = self.current_week_number
+        if (SaveManager.load_settings()["use_lettered_weeks"]):
+            week_label = chr(week_label + 64)
+
         # Update the week label
-        self.week_label.config(text=f"Week {self.current_week_type} Starting {self.current_date.strftime('%Y-%m-%d')}")
+        self.week_label.config(text=f"Week {week_label} Starting {self.current_date.strftime('%Y-%m-%d')}")
 
         # Clear the timetable frame
         for widget in self.timetable_frame.winfo_children():
@@ -212,11 +249,11 @@ class RevisionManagerApp:
         c = conn.cursor()
 
         # Load subjects for the current week type
-        c.execute("SELECT day, period, subject FROM Subjects WHERE week=?", (self.current_week_type,))
+        c.execute("SELECT day, period, subject FROM Subjects WHERE week=?", (self.current_week_number,))
         subjects = c.fetchall()
 
         for day, period, subject in subjects:
-            self.subjects[(self.current_week_type, day, period)] = subject
+            self.subjects[(self.current_week_number, day, period)] = subject
 
         # Load tasks that are date-specific
         c.execute("SELECT id, task, date, period, completed FROM Tasks")
@@ -235,7 +272,7 @@ class RevisionManagerApp:
         date = self.get_date_for_day(day, self.current_date)
 
         # Retrieve subject and tasks for this specific day and period
-        subject = self.subjects.get((self.current_week_type, day, period))
+        subject = self.subjects.get((self.current_week_number, day, period))
         tasks = self.tasks.get((date, period), [])  # date-specific task storage
 
         # Assume no subjects or tasks
@@ -257,19 +294,19 @@ class RevisionManagerApp:
     def prev_week(self):
         # Navigate to the previous week
         self.current_date -= timedelta(weeks=1)
-        self.current_week_type = 'A' if self.current_week_type == 'B' else 'B'
+        self.current_week_number = self.get_week_number_for_date(self.current_date)
         self.show_schedule()
 
     def next_week(self):
         # Navigate to the next week
         self.current_date += timedelta(weeks=1)
-        self.current_week_type = 'A' if self.current_week_type == 'B' else 'B'
+        self.current_week_number = self.get_week_number_for_date(self.current_date)
         self.show_schedule()
 
     def go_to_current_week(self):
         # Reset to the current week
         self.current_date = self.start_date + timedelta(weeks=(self.today_date - self.start_date).days // 7)
-        self.current_week_type = 'A' if ((self.today_date - self.start_date).days // 7) % 2 == 0 else 'B'
+        self.current_week_number = self.get_week_number_for_date(self.today_date)
         self.show_schedule()
 
     # --Period Options--
@@ -293,7 +330,7 @@ class RevisionManagerApp:
         subject_label = tk.Label(subject_frame, text="Subject:", pady=10)
         subject_label.grid(row=0, column=0)
 
-        subject = self.subjects.get((self.current_week_type, day, period))
+        subject = self.subjects.get((self.current_week_number, day, period))
         subject_text = tk.Label(subject_frame, text=subject if subject else "Free")
         subject_text.grid(row=0, column=1, sticky="w")
 
@@ -369,9 +406,9 @@ class RevisionManagerApp:
             conn = sqlite3.connect(DATABASE_FILE)
             c = conn.cursor()
             c.execute("DELETE FROM Subjects WHERE week=? AND day=? AND period=?", 
-                      (self.current_week_type, day, period))
+                      (self.current_week_number, day, period))
             c.execute("INSERT INTO Subjects (week, day, period, subject) VALUES (?, ?, ?, ?)", 
-                      (self.current_week_type, day, period, subject_text))
+                      (self.current_week_number, day, period, subject_text))
             conn.commit()
             conn.close()
             self.show_schedule()
@@ -385,7 +422,7 @@ class RevisionManagerApp:
         conn = sqlite3.connect(DATABASE_FILE)
         c = conn.cursor()
         c.execute("DELETE FROM Subjects WHERE week=? AND day=? AND period=? AND subject IS NOT NULL", 
-                  (self.current_week_type, day, period))
+                  (self.current_week_number, day, period))
         conn.commit()
         conn.close()
         self.show_schedule()
@@ -596,7 +633,7 @@ class RevisionManagerApp:
             c.execute("UPDATE Tasks SET period = 'After School', date = ? WHERE id = ?", (today_date, task_id,))
             conn.commit()
             conn.close()
-            
+
         # Else reschedule to next day
         else:
             conn.close()
@@ -660,6 +697,21 @@ class RevisionManagerApp:
         tk.Label(settings_frame, text="Max tasks after school: ").grid(row=2, column=0, sticky="e")
         tk.Entry(settings_frame, textvariable=max_tasks_afternoon).grid(row=2, column=1, sticky="w")
 
+        # Week rotation length
+        week_rotation_length = tk.IntVar(value=settings["week_rotation_length"])
+        tk.Label(settings_frame, text="Week rotation length: ").grid(row=3, column=0, sticky="e")
+        tk.Entry(settings_frame, textvariable=week_rotation_length).grid(row=3, column=1, sticky="w")
+
+        # Toggle for using lettered weeks
+        use_lettered_weeks = tk.BooleanVar(value=settings["use_lettered_weeks"])
+        tk.Label(settings_frame, text="Use lettered weeks: ").grid(row=4, column=0, sticky="e")
+        tk.Checkbutton(settings_frame, variable=use_lettered_weeks).grid(row=4, column=1, sticky="w")
+
+        # Start week date
+        start_week_date = tk.StringVar(value=settings["start_week_date"])
+        tk.Label(settings_frame, text="Start week date: ").grid(row=5, column=0, sticky="e")
+        DateEntry(settings_frame, textvariable=start_week_date, date_pattern="yyyy-mm-dd").grid(row=5, column=1, sticky="w")
+
         # Save settings to json file
         tk.Button(settings_window, text="Save", command=lambda: save_settings()).pack()
 
@@ -667,6 +719,9 @@ class RevisionManagerApp:
             settings["auto_reschedule"] = auto_reschedule.get()
             settings["max_tasks_lesson"] = max_tasks_lesson.get()
             settings["max_tasks_afternoon"] = max_tasks_afternoon.get()
+            settings["week_rotation_length"] = week_rotation_length.get()
+            settings["use_lettered_weeks"] = use_lettered_weeks.get()
+            settings["start_week_date"] = start_week_date.get()
             SaveManager.update_many_settings(settings)
 
             settings_window.destroy()
@@ -702,8 +757,10 @@ class RevisionManagerApp:
         days_of_week = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
         return days_of_week[date.weekday()]
 
-    def get_week_type_for_date(self, date):
-        return'A' if ((date - self.start_date).days // 7) % 2 == 0 else 'B'
+    def get_week_number_for_date(self, date):
+        weeks_since_start = (date - self.start_date).days // 7
+        week_number = (weeks_since_start % self.week_rotation_length) + 1
+        return week_number
 
     def get_unique_subjects(self):
         conn = sqlite3.connect(DATABASE_FILE)
