@@ -76,7 +76,6 @@ class SaveManager:
 
     # Save settings to the file
     def save_settings(settings):
-        print(settings["auto_reschedule"])
         with open(SETTINGS_FILE, "w") as file:
             json.dump(settings, file, indent=4)
 
@@ -154,21 +153,28 @@ class RevisionManagerApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Revision Manager")
+        self.system_setup()
+        self.schedule_auto_rescheduling()
+
+    def system_setup(self):
+        for widget in self.root.winfo_children():
+            widget.destroy()
 
         # Load settings
         settings = SaveManager.load_settings()
 
         # Define the start date for Week 1 and initialize variables
         self.start_date = datetime.strptime(settings.get("start_week_date", "2024-11-18"), "%Y-%m-%d")
+        print(self.start_date)
         self.today_date = datetime.today()
-        self.current_date = self.start_date + timedelta(weeks=(self.today_date - self.start_date).days // 7)
+        self.current_week_date = self.start_date + timedelta(weeks=(self.today_date - self.start_date).days // 7)
 
         # Load custom week rotation length and week display type from settings
         self.week_rotation_length = settings.get("week_rotation_length", 2)
         self.use_lettered_weeks = settings.get("use_lettered_weeks", False)
         self.current_week_number = self.get_week_number_for_date(self.today_date)
 
-        # Store subjects and tasks (tasks are now date-specific)
+        # Store subjects and tasks
         self.subjects = {}
         self.tasks = {}
 
@@ -176,7 +182,7 @@ class RevisionManagerApp:
         self.settings_frame = tk.Frame(self.root)
         self.settings_frame.place(x=10, y=10)
 
-        self.version = load_data("app")["version"]
+        self.version = load_data("app").get("version", "not found")
         tk.Label(self.settings_frame, text=f"Version: {self.version}").pack(anchor="w")
 
         settings_image = Image.open(os.path.join(get_assets_path(), "settings.png")).resize(size=[24, 24])
@@ -205,7 +211,6 @@ class RevisionManagerApp:
         self.timetable_frame.pack()
 
         self.show_schedule()
-        self.schedule_auto_rescheduling()
 
     def show_schedule(self):
         # Load data from the database for the current week
@@ -216,7 +221,7 @@ class RevisionManagerApp:
             week_label = chr(week_label + 64)
 
         # Update the week label
-        self.week_label.config(text=f"Week {week_label} Starting {self.current_date.strftime('%Y-%m-%d')}")
+        self.week_label.config(text=f"Week {week_label} Starting {self.current_week_date.strftime('%Y-%m-%d')}")
 
         # Clear the timetable frame
         for widget in self.timetable_frame.winfo_children():
@@ -269,7 +274,7 @@ class RevisionManagerApp:
 
     def load_timetable_entry(self, task_label, day, period):
         # Get date of current day in week
-        date = self.get_date_for_day(day, self.current_date)
+        date = self.get_date_for_day(day, self.current_week_date)
 
         # Retrieve subject and tasks for this specific day and period
         subject = self.subjects.get((self.current_week_number, day, period))
@@ -293,19 +298,19 @@ class RevisionManagerApp:
 
     def prev_week(self):
         # Navigate to the previous week
-        self.current_date -= timedelta(weeks=1)
-        self.current_week_number = self.get_week_number_for_date(self.current_date)
+        self.current_week_date -= timedelta(weeks=1)
+        self.current_week_number = self.get_week_number_for_date(self.current_week_date)
         self.show_schedule()
 
     def next_week(self):
         # Navigate to the next week
-        self.current_date += timedelta(weeks=1)
-        self.current_week_number = self.get_week_number_for_date(self.current_date)
+        self.current_week_date += timedelta(weeks=1)
+        self.current_week_number = self.get_week_number_for_date(self.current_week_date)
         self.show_schedule()
 
     def go_to_current_week(self):
         # Reset to the current week
-        self.current_date = self.start_date + timedelta(weeks=(self.today_date - self.start_date).days // 7)
+        self.current_week_date = self.start_date + timedelta(weeks=(self.today_date - self.start_date).days // 7)
         self.current_week_number = self.get_week_number_for_date(self.today_date)
         self.show_schedule()
 
@@ -320,7 +325,7 @@ class RevisionManagerApp:
         for widget in options_window.winfo_children():
             widget.destroy()
 
-        date = self.get_date_for_day(day, self.current_date)
+        date = self.get_date_for_day(day, self.current_week_date)
         tasks = self.tasks.get((date, period), [])
 
         subject_frame = tk.Frame(options_window)
@@ -440,7 +445,7 @@ class RevisionManagerApp:
 
         def save_task():
             task_text = task_var.get()
-            date_str = self.get_date_for_day(day, self.current_date).strftime("%Y-%m-%d")
+            date_str = self.get_date_for_day(day, self.current_week_date).strftime("%Y-%m-%d")
 
             # Retrieve subject ID for the specific period and day
             conn = sqlite3.connect(DATABASE_FILE)
@@ -460,7 +465,7 @@ class RevisionManagerApp:
 
     def clear_tasks(self, period, day, options_window):
         # Clear all tasks from the selected period
-        date_str = self.get_date_for_day(day, self.current_date).strftime("%Y-%m-%d")
+        date_str = self.get_date_for_day(day, self.current_week_date).strftime("%Y-%m-%d")
         conn = sqlite3.connect(DATABASE_FILE)
         c = conn.cursor()
         c.execute("DELETE FROM Tasks WHERE date=? AND period=? AND task IS NOT NULL", 
@@ -646,7 +651,7 @@ class RevisionManagerApp:
         c = conn.cursor()
 
         periods = ["1", "2", "3", "4", "5"]
-        week_type = self.get_week_type_for_date(date)
+        week_type = self.get_week_number_for_date(date)
         day = self.get_day_for_date(date)
 
         max_tasks = SaveManager.load_settings()["max_tasks_lesson"]
@@ -679,46 +684,59 @@ class RevisionManagerApp:
         for widget in settings_window.winfo_children():
             widget.destroy()
 
-        settings_frame = tk.Frame(settings_window)
-        settings_frame.pack()
+        rechedule_settings_frame = tk.LabelFrame(settings_window, text="Auto-rescheduling", pady=10)
+        rechedule_settings_frame.pack()
 
         # Toggle for auto rescheduling
         auto_reschedule = tk.BooleanVar(value=settings["auto_reschedule"])
-        tk.Label(settings_frame, text="Auto-reschedule tasks: ").grid(row=0, column=0, sticky="e")
-        tk.Checkbutton(settings_frame, variable=auto_reschedule).grid(row=0, column=1, sticky="w")
+        tk.Label(rechedule_settings_frame, text="Auto-reschedule tasks: ").grid(row=0, column=0, sticky="e")
+        tk.Checkbutton(rechedule_settings_frame, variable=auto_reschedule).grid(row=0, column=1, sticky="w")
 
         # Maximum number of tasks in a period before reschedule algorithm moves on
         max_tasks_lesson = tk.IntVar(value=settings["max_tasks_lesson"])
-        tk.Label(settings_frame, text="Max tasks per lesson: ").grid(row=1, column=0, sticky="e")
-        tk.Spinbox(settings_frame, from_=0, to_=100, textvariable=max_tasks_lesson, validate="key", validatecommand=(settings_frame.register(lambda val: val.isdigit() or val == ""), "%P")).grid(row=1, column=1, sticky="w")
+        tk.Label(rechedule_settings_frame, text="Max tasks per lesson: ").grid(row=1, column=0, sticky="e")
+        tk.Spinbox(rechedule_settings_frame, from_=0, to_=100, textvariable=max_tasks_lesson, validate="key", validatecommand=(rechedule_settings_frame.register(lambda val: val.isdigit() or val == ""), "%P")).grid(row=1, column=1, sticky="w")
 
         # Maximum number of tasks after school before reschedule algorithm moves on
         max_tasks_afternoon = tk.IntVar(value=settings["max_tasks_afternoon"])
-        tk.Label(settings_frame, text="Max tasks after school: ").grid(row=2, column=0, sticky="e")
-        tk.Spinbox(settings_frame, from_=0, to_=100, textvariable=max_tasks_afternoon, validate="key", validatecommand=(settings_frame.register(lambda val: val.isdigit() or val == ""), "%P")).grid(row=2, column=1, sticky="w")
+        tk.Label(rechedule_settings_frame, text="Max tasks after school: ").grid(row=2, column=0, sticky="e")
+        tk.Spinbox(rechedule_settings_frame, from_=0, to_=100, textvariable=max_tasks_afternoon, validate="key", validatecommand=(rechedule_settings_frame.register(lambda val: val.isdigit() or val == ""), "%P")).grid(row=2, column=1, sticky="w")
+
+        week_settings_frame = tk.LabelFrame(settings_window, text="Week Rotation", pady=10)
+        week_settings_frame.pack()
 
         # Week rotation length
         week_rotation_length = tk.IntVar(value=settings["week_rotation_length"])
-        tk.Label(settings_frame, text="Week rotation length: ").grid(row=3, column=0, sticky="e")
-        tk.Spinbox(settings_frame, from_=1, to_=100, textvariable=week_rotation_length, validate="key", validatecommand=(settings_frame.register(lambda val: val.isdigit() or val == ""), "%P")).grid(row=3, column=1, sticky="w")
+        tk.Label(week_settings_frame, text="Week rotation length: ").grid(row=3, column=0, sticky="e")
+        tk.Spinbox(week_settings_frame, from_=1, to_=100, textvariable=week_rotation_length, validate="key", validatecommand=(rechedule_settings_frame.register(lambda val: val.isdigit() or val == ""), "%P")).grid(row=3, column=1, sticky="w")
 
         # Toggle for using lettered weeks
         use_lettered_weeks = tk.BooleanVar(value=settings["use_lettered_weeks"])
-        tk.Label(settings_frame, text="Use lettered weeks: ").grid(row=4, column=0, sticky="e")
-        tk.Checkbutton(settings_frame, variable=use_lettered_weeks).grid(row=4, column=1, sticky="w")
+        tk.Label(week_settings_frame, text="Use lettered weeks: ").grid(row=4, column=0, sticky="e")
+        tk.Checkbutton(week_settings_frame, variable=use_lettered_weeks).grid(row=4, column=1, sticky="w")
 
-        # Start week date
+        # Start week selection
         start_week_date = tk.StringVar(value=settings["start_week_date"])
-        tk.Label(settings_frame, text="Start week date: ").grid(row=5, column=0, sticky="e")
-        DateEntry(settings_frame, textvariable=start_week_date, date_pattern="yyyy-mm-dd").grid(row=5, column=1, sticky="w")
+        tk.Label(week_settings_frame, text="Start week: ").grid(row=5, column=0, sticky="e")
+        week_selector = DateEntry(week_settings_frame, textvariable=start_week_date, date_pattern="yyyy-mm-dd")
+        week_selector.set_date(datetime.strptime(settings["start_week_date"], "%Y-%m-%d"))
+        week_selector.grid(row=5, column=1, sticky="w")
 
         # Save settings to json file
         tk.Button(settings_window, text="Save", command=lambda: save_settings()).pack()
 
-        def save_settings():
+        # Restrict date selection to Mondays only
+        def validate_settings():
+            selected_start_week_date = datetime.strptime(start_week_date.get(), "%Y-%m-%d")
+            monday_date = selected_start_week_date - timedelta(days=selected_start_week_date.weekday())
+            start_week_date.set(monday_date.strftime("%Y-%m-%d"))
+
             if max_tasks_lesson.get() < 1 and max_tasks_afternoon.get() < 1:
                 auto_reschedule.set(False)
-            
+
+        def save_settings():
+            validate_settings()            
+
             settings["auto_reschedule"] = auto_reschedule.get()
             settings["max_tasks_lesson"] = max_tasks_lesson.get()
             settings["max_tasks_afternoon"] = max_tasks_afternoon.get()
@@ -728,7 +746,7 @@ class RevisionManagerApp:
             SaveManager.update_many_settings(settings)
 
             settings_window.destroy()
-            self.show_schedule()
+            self.system_setup()
 
     # --General Functions--
 
