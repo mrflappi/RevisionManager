@@ -277,7 +277,7 @@ class RevisionManagerApp:
 
         for day, period, subject in subjects:
             self.subjects[(self.current_week_number, day, period)] = subject
-       
+
         # Load tasks that are date-specific
         c.execute("SELECT id, task, date, period, completed FROM Tasks")
         tasks = c.fetchall()
@@ -302,14 +302,13 @@ class RevisionManagerApp:
         task_label.config(text="", font=('Arial', 10))
 
         # Configure text based on subject and tasks
+        tasks_text = f"{str(len(tasks))} task{"s" if len(tasks) > 1 else ""}"
+
         if subject:
             task_label.config(text=subject)
             if tasks:
-                tasks_text = f"{str(len(tasks))} task{"s" if len(tasks) > 1 else ""}"
                 task_label.config(text=f"{subject}:\n{tasks_text}")
         elif tasks:
-            # Display tasks only if there is no subject
-            tasks_text = str(len(tasks)) + " tasks"
             task_label.config(text=tasks_text)
 
     # --Week Navigation--
