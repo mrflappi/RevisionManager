@@ -1,0 +1,1 @@
+nuitka revision_manager.py --output-dir=build --windows-icon-from-ico=assets/icon.ico --windows-console-mode=disable
