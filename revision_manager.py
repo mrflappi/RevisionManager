@@ -646,7 +646,7 @@ class RevisionManagerApp:
         c = conn.cursor()
 
         # Get all incomplete tasks for the current day that aren't in "After School"
-        c.execute("SELECT id, task FROM Tasks WHERE date = ? AND period != 'After School' AND completed = 0", (today_date,))
+        c.execute("SELECT id, task FROM Tasks WHERE date < ? AND period != 'After School' AND completed = 0", (today_date,))
         tasks = c.fetchall()
         conn.close()
 
