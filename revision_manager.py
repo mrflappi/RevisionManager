@@ -118,6 +118,12 @@ class SaveManager:
                     )"""
         )
 
+        # Create a Holidays table for holiday dates
+        c.execute("""CREATE TABLE IF NOT EXISTS Holidays (
+                        date TEXT PRIMARY KEY
+                    )"""
+        )
+
         conn.commit()
         conn.close()
 
@@ -208,7 +214,7 @@ class RevisionManagerApp:
         tk.Button(self.navigation_frame, image=self.nextweek_photoimage, command=self.next_week).grid(row=0, column=2, padx=5)
 
         self.timetable_frame = tk.Frame(self.root)
-        self.timetable_frame.pack()
+        self.timetable_frame.pack(pady=(0, 15), padx=15)
 
         self.show_schedule()
 
@@ -233,11 +239,26 @@ class RevisionManagerApp:
 
         # Table headers (periods along the top)
         for col, period in enumerate(["Day"] + periods):
-            tk.Label(self.timetable_frame, text=period, borderwidth=1, relief="solid", width=15).grid(row=0, column=col)
+            tk.Label(self.timetable_frame, text=period, borderwidth=1, relief="solid", width=15).grid(row=0, column=col, sticky="nsew")
+
+        holiday_image = Image.open(os.path.join(get_assets_path(), "sleep.png")).resize(size=[15, 15])
+        self.holiday_photoimage = ImageTk.PhotoImage(holiday_image) 
 
         # Days and clickable cells
         for row, day in enumerate(days, start=1):
-            tk.Label(self.timetable_frame, text=day, borderwidth=1, relief="solid", width=15).grid(row=row, column=0)
+            day_frame = tk.Frame(self.timetable_frame, borderwidth=1, relief="solid", width=6, height=2)
+            day_frame.grid(row=row, column=0, sticky="nsew")
+
+            # Display the name of the day
+            tk.Label(day_frame, text=day, font=('Arial italic', 10), fg="#444444").place(relx=0.5, rely=0.5, anchor="center")
+
+            # Provide a button to toggle the holiday status of the day
+            this_date = self.get_date_for_day(day, self.current_week_date)
+            
+            # Make the button green if it's a holiday already
+            button_color = "lightgreen" if self.is_holiday(this_date) else "SystemButtonFace"
+            tk.Button(day_frame, image=self.holiday_photoimage, bg=button_color, command=lambda this_date=this_date: self.toggle_date_holiday(this_date)).place(relx=0.05, rely=0.05, anchor="nw")
+
             for col, period in enumerate(periods, start=1):
                 task_label = tk.Label(self.timetable_frame, borderwidth=1, relief="solid", width=15, height=5)
                 task_label.grid(row=row, column=col)
@@ -258,6 +279,12 @@ class RevisionManagerApp:
         subjects = c.fetchall()
 
         for day, period, subject in subjects:
+            date = self.get_date_for_day(day, self.current_week_date)
+
+            # Check if this date is stored anywhere in the Holidays database
+            if self.is_holiday(date):
+                continue
+
             self.subjects[(self.current_week_number, day, period)] = subject
 
         # Load tasks that are date-specific
@@ -394,6 +421,38 @@ class RevisionManagerApp:
         tk.Button(tasks_management_frame, text="Add Task", command=lambda: self.add_task(period, day, options_window)).grid(row=0, column=0)
         if tasks:
             tk.Button(tasks_management_frame, text="Clear Tasks", command=lambda: self.clear_tasks(period, day, options_window)).grid(row=0, column=1)
+
+    # --Holiday Management--
+    def is_holiday(self, date):
+        conn = sqlite3.connect(DATABASE_FILE)
+        c = conn.cursor()
+        c.execute("SELECT * FROM Holidays WHERE date=?", (date.strftime("%Y-%m-%d"),))
+        result = c.fetchone()
+        conn.close()
+        return result
+
+    def toggle_date_holiday(self, date):
+        print(date)
+        if self.is_holiday(date):
+            self.remove_date_from_holidays(date)
+        else:
+            self.add_date_to_holidays(date)
+
+    def add_date_to_holidays(self, date):
+        conn = sqlite3.connect(DATABASE_FILE)
+        c = conn.cursor()
+        c.execute("INSERT INTO Holidays (date) VALUES (?)", (date.strftime("%Y-%m-%d"),))
+        conn.commit()
+        conn.close()
+        self.show_schedule()
+
+    def remove_date_from_holidays(self, date):
+        conn = sqlite3.connect(DATABASE_FILE)
+        c = conn.cursor()
+        c.execute("DELETE FROM Holidays WHERE date=?", (date.strftime("%Y-%m-%d"),))
+        conn.commit()
+        conn.close()
+        self.show_schedule()
 
     # --Subject Management--
 
