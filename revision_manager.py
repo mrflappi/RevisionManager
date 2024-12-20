@@ -62,7 +62,6 @@ class SaveManager:
 
             # Input existing values over default values
             for key, value in settings.items():
-                print(key + " " + str(value))
                 updated_settings.update({key: value})
 
             SaveManager.save_settings(updated_settings)
@@ -171,7 +170,6 @@ class RevisionManagerApp:
 
         # Define the start date for Week 1 and initialize variables
         self.start_date = datetime.strptime(settings.get("start_week_date", "2024-11-18"), "%Y-%m-%d")
-        print(self.start_date)
         self.today_date = datetime.today()
         self.current_week_date = self.start_date + timedelta(weeks=(self.today_date - self.start_date).days // 7)
 
@@ -254,7 +252,7 @@ class RevisionManagerApp:
 
             # Provide a button to toggle the holiday status of the day
             this_date = self.get_date_for_day(day, self.current_week_date)
-            
+
             # Make the button green if it's a holiday already
             button_color = "lightgreen" if self.is_holiday(this_date) else "SystemButtonFace"
             tk.Button(day_frame, image=self.holiday_photoimage, bg=button_color, command=lambda this_date=this_date: self.toggle_date_holiday(this_date)).place(relx=0.05, rely=0.05, anchor="nw")
@@ -275,18 +273,11 @@ class RevisionManagerApp:
         c = conn.cursor()
 
         # Load subjects for the current week type
-        c.execute("SELECT day, period, subject FROM Subjects WHERE week=?", (self.current_week_number,))
-        subjects = c.fetchall()
+        subjects = self.get_subjects_for_week(self.current_week_date)
 
         for day, period, subject in subjects:
-            date = self.get_date_for_day(day, self.current_week_date)
-
-            # Check if this date is stored anywhere in the Holidays database
-            if self.is_holiday(date):
-                continue
-
             self.subjects[(self.current_week_number, day, period)] = subject
-
+       
         # Load tasks that are date-specific
         c.execute("SELECT id, task, date, period, completed FROM Tasks")
         tasks = c.fetchall()
@@ -432,7 +423,6 @@ class RevisionManagerApp:
         return result
 
     def toggle_date_holiday(self, date):
-        print(date)
         if self.is_holiday(date):
             self.remove_date_from_holidays(date)
         else:
@@ -716,8 +706,7 @@ class RevisionManagerApp:
         max_tasks = SaveManager.load_settings()["max_tasks_lesson"]
         scheduled = False
         for period in periods:
-            c.execute("SELECT subject FROM Subjects WHERE day = ? AND period = ? AND week = ?", (day, period, week_type))
-            subject = c.fetchone()
+            subject = self.get_subject_for_date_period(date, period)
 
             if self.count_tasks_in_period(today_date, period) < max_tasks and ((not subject) or subject == "Supp"):
 
@@ -726,6 +715,7 @@ class RevisionManagerApp:
                 scheduled = True
                 conn.commit()
                 return
+
         conn.close()
 
         if not scheduled:
@@ -852,6 +842,38 @@ class RevisionManagerApp:
 
         conn.close()
         return unique_subjects
+
+    # Get the subject for a specific date
+    def get_subject_for_date_period(self, date, period):
+        day = self.get_day_for_date(date)
+        week_number = self.get_week_number_for_date(date)
+        conn = sqlite3.connect(DATABASE_FILE)
+        c = conn.cursor()
+
+        if self.is_holiday(date):
+            return None
+
+        c.execute("SELECT subject FROM Subjects WHERE week=? AND day=? AND period=?", (week_number, day, period))
+        subject = c.fetchone()
+        conn.close()
+        return subject[0] if subject else None
+
+    # Get the subject for a week
+    def get_subjects_for_week(self, week_start_date):
+        conn = sqlite3.connect(DATABASE_FILE)
+        c = conn.cursor()
+        week_number = self.get_week_number_for_date(week_start_date)
+
+        c.execute("SELECT day, period, subject FROM Subjects WHERE week=?", (week_number,))
+        subjects = c.fetchall()
+
+        # Remove subjects with dates in the Holidays table
+        holidays = set(row[0] for row in c.execute("SELECT date FROM Holidays").fetchall())
+
+        subjects = [row for row in subjects if self.get_date_for_day(row[0], week_start_date).strftime("%Y-%m-%d") not in holidays]
+
+        conn.close()
+        return subjects
 
 # Initialize save data and start app
 SaveManager.init_db()
